@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# PreToolUse hook for Foundry plugin
+# Scope enforcement: warn on out-of-scope edits, unnecessary .md creation
+# Matcher: Write|Edit (does NOT overlap with user's Bash matcher for bob gate)
+
+set -euo pipefail
+
+# Read JSON input from stdin
+INPUT=$(cat)
+
+# Extract fields
+extract_field() {
+  echo "$INPUT" | grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"//" | sed 's/"$//'
+}
+
+CWD=$(extract_field "cwd")
+TOOL_NAME=$(extract_field "tool_name")
+FILE_PATH=$(extract_field "file_path")
+
+[ -z "$CWD" ] && CWD="$(pwd)"
+[ -z "$FILE_PATH" ] && exit 0
+
+# --- Check if Foundry project ---
+[ ! -f "${CWD}/foundry.json" ] && exit 0
+
+# --- Scope guard: check active plan ---
+ACTIVE_PLAN="${CWD}/.foundry/active-plan.json"
+if [ -f "$ACTIVE_PLAN" ] && command -v python3 &>/dev/null; then
+  SCOPE_RESULT=$(python3 -c "
+import json, sys, os
+
+try:
+    plan_meta = json.load(open('${ACTIVE_PLAN}'))
+    plan_file = plan_meta.get('plan_file', '')
+    if not plan_file:
+        sys.exit(0)
+
+    plan_path = os.path.join('${CWD}', plan_file)
+    if not os.path.exists(plan_path):
+        sys.exit(0)
+
+    # Read plan, extract files from task lines
+    content = open(plan_path).read()
+    relevant_files = set()
+    for line in content.split('\n'):
+        if '(files:' in line:
+            # Extract file list from 'files: a.ts, b.ts)'
+            start = line.index('(files:') + 7
+            end = line.index(')', start)
+            files = [f.strip() for f in line[start:end].split(',')]
+            relevant_files.update(files)
+
+    if not relevant_files:
+        sys.exit(0)
+
+    # Check if edited file is in scope
+    rel_path = os.path.relpath('${FILE_PATH}', '${CWD}')
+    in_scope = any(rel_path == f or rel_path.endswith('/' + f) for f in relevant_files)
+
+    if not in_scope:
+        print(f'out-of-scope:{rel_path}')
+    else:
+        print('ok')
+except Exception:
+    pass
+" 2>/dev/null || echo "ok")
+
+  if [[ "$SCOPE_RESULT" == out-of-scope:* ]]; then
+    REL="${SCOPE_RESULT#out-of-scope:}"
+    echo "{\"systemMessage\":\"[Foundry] Scope warning: ${REL} is not in the active plan's relevant files. Confirm this edit is intentional.\"}"
+    exit 0
+  fi
+fi
+
+# --- Guard against unnecessary .md creation ---
+if [ "$TOOL_NAME" = "Write" ]; then
+  REL_PATH="${FILE_PATH#$CWD/}"
+
+  # Allow known .md files
+  case "$REL_PATH" in
+    .foundry/*|foundry-progress.json|CLAUDE.md|*.test.*|*.spec.*)
+      # Always allowed
+      ;;
+    *.md)
+      # Warn on other .md file creation (not edit)
+      if [ ! -f "$FILE_PATH" ]; then
+        echo "{\"systemMessage\":\"[Foundry] Creating new .md file: ${REL_PATH}. Is this necessary for the current task?\"}"
+      fi
+      ;;
+  esac
+fi
+
+exit 0

@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# Stop hook for Foundry plugin
+# Session audit: check for quality issues, write handoff note, desktop notification
+# Does NOT conflict with user's stop.mjs (which writes last-session.md)
+
+set -euo pipefail
+
+# Read JSON input from stdin
+INPUT=$(cat)
+
+extract_field() {
+  echo "$INPUT" | grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"//" | sed 's/"$//'
+}
+
+CWD=$(extract_field "cwd")
+SESSION_ID=$(extract_field "session_id")
+
+[ -z "$CWD" ] && CWD="$(pwd)"
+
+# --- Check if Foundry project ---
+[ ! -f "${CWD}/foundry.json" ] && exit 0
+
+FOUNDRY_DIR="${CWD}/.foundry"
+[ ! -d "$FOUNDRY_DIR" ] && exit 0
+
+messages=()
+
+# --- Audit modified files for quality issues ---
+# Check git diff for console.log / debugger in staged + unstaged changes
+AUDIT_OUTPUT=$(cd "$CWD" && git diff --name-only 2>/dev/null || true)
+STAGED_OUTPUT=$(cd "$CWD" && git diff --cached --name-only 2>/dev/null || true)
+ALL_CHANGED=$(echo -e "${AUDIT_OUTPUT}\n${STAGED_OUTPUT}" | sort -u | grep -v '^$' || true)
+
+quality_issues=""
+while IFS= read -r file; do
+  [ -z "$file" ] && continue
+  full_path="${CWD}/${file}"
+  [ ! -f "$full_path" ] && continue
+
+  case "$file" in
+    *.ts|*.tsx|*.js|*.jsx)
+      cl=$(grep -c 'console\.log' "$full_path" 2>/dev/null || echo 0)
+      dbg=$(grep -c 'debugger' "$full_path" 2>/dev/null || echo 0)
+      if [ "$cl" -gt 0 ] || [ "$dbg" -gt 0 ]; then
+        quality_issues+="  - ${file}: ${cl} console.log, ${dbg} debugger\n"
+      fi
+      ;;
+  esac
+done <<< "$ALL_CHANGED"
+
+if [ -n "$quality_issues" ]; then
+  messages+=("Quality issues in changed files:\n${quality_issues}Remove debug statements before committing.")
+fi
+
+# --- Check active plan acceptance criteria ---
+ACTIVE_PLAN="${FOUNDRY_DIR}/active-plan.json"
+if [ -f "$ACTIVE_PLAN" ] && command -v python3 &>/dev/null; then
+  PLAN_STATUS=$(python3 -c "
+import json
+try:
+  m = json.load(open('${ACTIVE_PLAN}'))
+  plan_file = m.get('plan_file','')
+  if plan_file:
+    import os
+    content = open(os.path.join('${CWD}', plan_file)).read()
+    unchecked = [l.strip() for l in content.split('\n') if l.strip().startswith('- [ ]')]
+    checked = [l.strip() for l in content.split('\n') if l.strip().startswith('- [x]')]
+    total = len(unchecked) + len(checked)
+    if total > 0:
+      print(f'{len(checked)}/{total} tasks complete')
+      if unchecked:
+        print('Remaining:')
+        for t in unchecked[:5]:
+          print(f'  {t}')
+except: pass
+" 2>/dev/null || true)
+
+  if [ -n "$PLAN_STATUS" ]; then
+    messages+=("Active plan status:\n${PLAN_STATUS}")
+  fi
+fi
+
+# --- Write handoff note (lightweight auto version) ---
+DATE=$(date +"%Y-%m-%d")
+BRANCH=$(cd "$CWD" && git branch --show-current 2>/dev/null || echo "unknown")
+LAST_COMMIT=$(cd "$CWD" && git log --oneline -1 2>/dev/null || echo "none")
+CHANGED_COUNT=$(echo "$ALL_CHANGED" | grep -c '[^[:space:]]' || echo 0)
+
+# Only write if there were changes
+if [ "$CHANGED_COUNT" -gt 0 ]; then
+  HANDOFF="${FOUNDRY_DIR}/handoff-note.md"
+  cat > "$HANDOFF" << EOF
+# Auto-Handoff — ${DATE}
+
+**Branch:** ${BRANCH}
+**Last commit:** ${LAST_COMMIT}
+**Files changed:** ${CHANGED_COUNT}
+**Session:** ${SESSION_ID}
+
+## Changed Files
+$(echo "$ALL_CHANGED" | sed 's/^/- /')
+
+## Note
+This is an auto-generated handoff. Use /foundry-handoff for a detailed session summary.
+EOF
+fi
+
+# --- Doc gardening (background, non-blocking) ---
+GARDEN_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../scripts" && pwd)/garden-docs.sh"
+if [ -f "$GARDEN_SCRIPT" ] && [ -x "$GARDEN_SCRIPT" ]; then
+  "$GARDEN_SCRIPT" "$CWD" --sweep &>/dev/null &
+fi
+
+# --- Reset change counter ---
+echo "0" > "${FOUNDRY_DIR}/.change-count" 2>/dev/null || true
+
+# --- Desktop notification ---
+if command -v notify-send &>/dev/null; then
+  notify-send "Foundry" "Session ended. ${CHANGED_COUNT} files changed." 2>/dev/null || true
+fi
+
+# --- Output ---
+if [ ${#messages[@]} -gt 0 ]; then
+  COMBINED=""
+  for msg in "${messages[@]}"; do
+    [ -n "$COMBINED" ] && COMBINED+="\n\n"
+    COMBINED+="$msg"
+  done
+
+  ESCAPED="${COMBINED//\\/\\\\}"
+  ESCAPED="${ESCAPED//\"/\\\"}"
+
+  echo "{\"decision\":\"block\",\"reason\":\"[Foundry session audit]\\n${ESCAPED}\\n\\nRun /foundry-handoff for a proper session handoff, or confirm you want to exit.\"}"
+fi
+
+exit 0

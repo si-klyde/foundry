@@ -1,0 +1,40 @@
+{
+  "$schema": "https://foundry.growgami.com/schema/foundry.json",
+  "version": "0.1.0",
+  "project": {
+    "name": "",
+    "description": ""
+  },
+  "verification": {
+    "typecheck": {
+      "enabled": true,
+      "command": "npx tsc --noEmit --pretty",
+      "on_edit": true
+    },
+    "lint": {
+      "enabled": false,
+      "command": "npx eslint .",
+      "on_edit": false
+    },
+    "test": {
+      "enabled": true,
+      "command": "npx vitest run",
+      "on_edit": false
+    },
+    "format": {
+      "enabled": false,
+      "command": "npx prettier --write",
+      "on_edit": false
+    }
+  },
+  "thresholds": {
+    "change_count_reminder": 5,
+    "typecheck_timeout_ms": 10000
+  },
+  "features": {
+    "delegation": false,
+    "auto_codemap": false,
+    "session_logging": true,
+    "quality_gates": true
+  }
+}

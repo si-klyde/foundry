@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+# PostToolUse hook for Foundry plugin
+# Fires after Write|Edit — typecheck, quality gates, session logging, change counting
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Read JSON input from stdin
+INPUT=$(cat)
+
+# Extract fields via grep (no jq dependency)
+extract_field() {
+  echo "$INPUT" | grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"//" | sed 's/"$//'
+}
+
+CWD=$(extract_field "cwd")
+TOOL_NAME=$(extract_field "tool_name")
+SESSION_ID=$(extract_field "session_id")
+FILE_PATH=$(extract_field "file_path")
+
+[ -z "$CWD" ] && CWD="$(pwd)"
+[ -z "$FILE_PATH" ] && exit 0
+
+# --- Check if this is a Foundry project ---
+FOUNDRY_JSON="${CWD}/foundry.json"
+[ ! -f "$FOUNDRY_JSON" ] && exit 0
+
+messages=()
+
+# --- Session logging ---
+FOUNDRY_DIR="${CWD}/.foundry"
+if [ -d "$FOUNDRY_DIR" ]; then
+  LOG_FILE="${FOUNDRY_DIR}/session-log.jsonl"
+  NOW=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
+  REL_PATH="${FILE_PATH#$CWD/}"
+  echo "{\"ts\":\"${NOW}\",\"tool\":\"${TOOL_NAME}\",\"file\":\"${REL_PATH}\",\"session\":\"${SESSION_ID}\"}" >> "$LOG_FILE" 2>/dev/null || true
+fi
+
+# --- Change counter + reminder ---
+CHANGE_COUNT_FILE="${FOUNDRY_DIR}/.change-count"
+if [ -d "$FOUNDRY_DIR" ]; then
+  COUNT=0
+  [ -f "$CHANGE_COUNT_FILE" ] && COUNT=$(cat "$CHANGE_COUNT_FILE" 2>/dev/null || echo 0)
+  COUNT=$((COUNT + 1))
+  echo "$COUNT" > "$CHANGE_COUNT_FILE"
+
+  # Read threshold from foundry.json (default 5)
+  THRESHOLD=5
+  if command -v python3 &>/dev/null; then
+    THRESHOLD=$(python3 -c "
+import json,sys
+try:
+  c=json.load(open('${FOUNDRY_JSON}'))
+  print(c.get('thresholds',{}).get('change_count_reminder',5))
+except: print(5)
+" 2>/dev/null || echo 5)
+  fi
+
+  if [ "$COUNT" -ge "$THRESHOLD" ]; then
+    messages+=("${COUNT} edits since last checkpoint. Consider running /foundry-checkpoint.")
+    echo "0" > "$CHANGE_COUNT_FILE"
+  fi
+fi
+
+# --- Typecheck on .ts/.tsx edits ---
+if [[ "$FILE_PATH" == *.ts || "$FILE_PATH" == *.tsx ]]; then
+  # Check if typecheck_on_edit is enabled
+  TC_ENABLED="false"
+  if command -v python3 &>/dev/null; then
+    TC_ENABLED=$(python3 -c "
+import json
+try:
+  c=json.load(open('${FOUNDRY_JSON}'))
+  v=c.get('verification',{}).get('typecheck',{})
+  print('true' if v.get('enabled') and v.get('on_edit') else 'false')
+except: print('false')
+" 2>/dev/null || echo "false")
+  fi
+
+  if [ "$TC_ENABLED" = "true" ]; then
+    TC_CMD="npx tsc --noEmit --pretty"
+    if command -v python3 &>/dev/null; then
+      TC_CMD=$(python3 -c "
+import json
+try:
+  c=json.load(open('${FOUNDRY_JSON}'))
+  print(c.get('verification',{}).get('typecheck',{}).get('command','npx tsc --noEmit --pretty'))
+except: print('npx tsc --noEmit --pretty')
+" 2>/dev/null || echo "npx tsc --noEmit --pretty")
+    fi
+
+    TIMEOUT_MS=10000
+    if command -v python3 &>/dev/null; then
+      TIMEOUT_MS=$(python3 -c "
+import json
+try:
+  c=json.load(open('${FOUNDRY_JSON}'))
+  print(c.get('thresholds',{}).get('typecheck_timeout_ms',10000))
+except: print(10000)
+" 2>/dev/null || echo 10000)
+    fi
+    TIMEOUT_S=$((TIMEOUT_MS / 1000))
+
+    TC_OUTPUT=$(cd "$CWD" && timeout "$TIMEOUT_S" bash -c "$TC_CMD" 2>&1 | head -20)
+    TC_EXIT=$?
+
+    if [ "$TC_EXIT" -ne 0 ] && [ -n "$TC_OUTPUT" ]; then
+      messages+=("Typecheck errors after editing ${FILE_PATH#$CWD/}:\n${TC_OUTPUT}")
+    fi
+  fi
+fi
+
+# --- Quality gates ---
+QUALITY_ENABLED="false"
+if command -v python3 &>/dev/null; then
+  QUALITY_ENABLED=$(python3 -c "
+import json
+try:
+  c=json.load(open('${FOUNDRY_JSON}'))
+  print('true' if c.get('features',{}).get('quality_gates') else 'false')
+except: print('false')
+" 2>/dev/null || echo "false")
+fi
+
+if [ "$QUALITY_ENABLED" = "true" ] && [ -f "$FILE_PATH" ]; then
+  QUALITY_ISSUES=""
+
+  # Check for console.log (in .ts/.tsx/.js/.jsx files)
+  if [[ "$FILE_PATH" == *.ts || "$FILE_PATH" == *.tsx || "$FILE_PATH" == *.js || "$FILE_PATH" == *.jsx ]]; then
+    CL_COUNT=$(grep -c 'console\.log' "$FILE_PATH" 2>/dev/null) || CL_COUNT=0
+    if [ "$CL_COUNT" -gt 0 ]; then
+      QUALITY_ISSUES+="- ${CL_COUNT} console.log statement(s) in ${FILE_PATH#$CWD/}\n"
+    fi
+
+    DBG_COUNT=$(grep -c 'debugger' "$FILE_PATH" 2>/dev/null) || DBG_COUNT=0
+    if [ "$DBG_COUNT" -gt 0 ]; then
+      QUALITY_ISSUES+="- ${DBG_COUNT} debugger statement(s) in ${FILE_PATH#$CWD/}\n"
+    fi
+  fi
+
+  if [ -n "$QUALITY_ISSUES" ]; then
+    messages+=("Quality warnings:\n${QUALITY_ISSUES}")
+  fi
+fi
+
+# --- Output ---
+if [ ${#messages[@]} -gt 0 ]; then
+  # Join messages
+  COMBINED=""
+  for msg in "${messages[@]}"; do
+    [ -n "$COMBINED" ] && COMBINED+="\n\n"
+    COMBINED+="$msg"
+  done
+
+  # Escape for JSON
+  ESCAPED="${COMBINED//\\/\\\\}"
+  ESCAPED="${ESCAPED//\"/\\\"}"
+
+  echo "{\"systemMessage\":\"[Foundry] ${ESCAPED}\"}"
+fi
+
+exit 0

@@ -1,0 +1,10 @@
+{
+  "name": "foundry",
+  "description": "Agent orchestration layer: structured workflows, verification, progress tracking, cross-session continuity",
+  "version": "0.1.0",
+  "author": {
+    "name": "Growgami",
+    "email": "collide@growgami.com"
+  },
+  "keywords": ["orchestration", "verification", "progress", "workflows", "tdd"]
+}

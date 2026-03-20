@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# SessionStart hook for Foundry plugin
+# Injects: rules + progress state + handoff note + skill pointer
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Read JSON input from stdin
+INPUT=$(cat)
+CWD=$(echo "$INPUT" | grep -o '"cwd"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"cwd"[[:space:]]*:[[:space:]]*"//' | sed 's/"$//' || echo "")
+if [ -z "$CWD" ]; then
+  CWD="$(pwd)"
+fi
+
+# --- Detect superpowers ---
+SUPERPOWERS_INSTALLED=false
+if [ -d "${HOME}/.claude/plugins/cache/claude-plugins-official/superpowers" ] || \
+   ls "${HOME}/.claude/skills/using-superpowers" 2>/dev/null | grep -q .; then
+  SUPERPOWERS_INSTALLED=true
+fi
+
+# --- Collect rules ---
+rules_content=""
+for rule_file in "${PLUGIN_ROOT}/rules/"*.md; do
+  [ -f "$rule_file" ] || continue
+  # Skip integration rule if superpowers not installed
+  if [ "$SUPERPOWERS_INSTALLED" = false ] && [[ "$(basename "$rule_file")" == "integration.md" ]]; then
+    continue
+  fi
+  rules_content+="$(cat "$rule_file")"$'\n\n'
+done
+
+# --- Read using-foundry skill ---
+using_foundry=""
+if [ -f "${PLUGIN_ROOT}/skills/using-foundry/SKILL.md" ]; then
+  using_foundry="$(cat "${PLUGIN_ROOT}/skills/using-foundry/SKILL.md")"
+fi
+
+# --- Read project state (if foundry project) ---
+project_state=""
+
+# Progress file
+progress_file="${CWD}/foundry-progress.json"
+if [ -f "$progress_file" ]; then
+  project_state+="## Current Progress\n\`\`\`json\n$(cat "$progress_file")\n\`\`\`\n\n"
+fi
+
+# Handoff note from previous session
+handoff_file="${CWD}/.foundry/handoff-note.md"
+if [ -f "$handoff_file" ]; then
+  project_state+="## Handoff Note (from previous session)\n$(cat "$handoff_file")\n\n"
+fi
+
+# Active plan
+active_plan="${CWD}/.foundry/active-plan.json"
+if [ -f "$active_plan" ]; then
+  project_state+="## Active Plan\n\`\`\`json\n$(cat "$active_plan")\n\`\`\`\n\n"
+fi
+
+# --- Escape for JSON ---
+escape_for_json() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
+# --- Assemble context ---
+context="<EXTREMELY_IMPORTANT>\nYou have Foundry installed.\n\n"
+context+="## Foundry Rules\n\n$(escape_for_json "$rules_content")\n\n"
+
+if [ -n "$using_foundry" ]; then
+  context+="## Foundry System\n\n$(escape_for_json "$using_foundry")\n\n"
+fi
+
+if [ -n "$project_state" ]; then
+  context+="$(escape_for_json "$project_state")"
+fi
+
+context+="</EXTREMELY_IMPORTANT>"
+
+# --- Output ---
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+  cat <<EOF
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "${context}"
+  }
+}
+EOF
+else
+  cat <<EOF
+{
+  "additional_context": "${context}"
+}
+EOF
+fi
+
+exit 0
