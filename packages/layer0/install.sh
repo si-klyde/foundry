@@ -122,6 +122,20 @@ for skill in "${SKILLS[@]}"; do
 done
 echo "  Copied ${#SKILLS[@]} skills to ${SKILLS_DIR}"
 
+# 1b. Remove stale foundry skills not in SKILLS array
+for existing in "${SKILLS_DIR}"/foundry-*/; do
+  [ -d "$existing" ] || continue
+  name="$(basename "$existing")"
+  found=false
+  for skill in "${SKILLS[@]}"; do
+    if [ "$skill" = "$name" ]; then found=true; break; fi
+  done
+  if [ "$found" = false ]; then
+    rm -rf "$existing"
+    echo "  Removed stale skill: ${name}"
+  fi
+done
+
 # 2. Copy agents
 mkdir -p "$AGENTS_DIR"
 for agent in "${AGENTS[@]}"; do
