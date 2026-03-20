@@ -496,9 +496,11 @@ foundry/
 
 **Why not under gg-skills:** Foundry is a standalone project, not a Growgami convention. Should be installable independently.
 
+**Resolved:**
+- Plugins DO support hooks in plugin.json — either inline or via `"hooks": "./hooks/hooks.json"`. Superpowers uses file-based, hookify uses inline. Both patterns work.
+- Single-plugin marketplaces are fine — `ralph-loop-setup` is precedent.
+
 **Unresolved:**
-- Does the plugin system support hooks declared in plugin.json, or only skills? Need to verify.
-- Can a marketplace contain only one plugin, or does the system expect multiple?
 - How does `install.sh` change — does it register the marketplace + enable, or does `claude plugins add` handle it?
 - L1-L3 (CLI, orchestrator, daemon) live outside the plugin. Repo restructure must not break their paths.
 
