@@ -5,10 +5,12 @@ Agent orchestration plugin for Claude Code. Adds structured workflows, continuou
 ## Install
 
 ```bash
-cd packages/layer0
-bash install.sh
-# Restart Claude Code
+# In Claude Code:
+/plugin marketplace add si-klyde/foundry
+/plugin install foundry@foundry
 ```
+
+Migrating from legacy `install.sh`? Run `bash packages/layer0/migrate.sh` first.
 
 ## What You Get
 
@@ -66,9 +68,8 @@ Start session → read progress → /foundry-plan
 ## Uninstall
 
 ```bash
-rm ~/.claude/plugins/cache/foundry-local/foundry/0.1.0
-# Remove "foundry@foundry-local" from ~/.claude/plugins/installed_plugins.json
-# Remove "foundry@foundry-local" from ~/.claude/settings.json enabledPlugins
+# In Claude Code:
+/plugin remove foundry@foundry
 ```
 
 ## Coexistence
