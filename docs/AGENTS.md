@@ -5,6 +5,8 @@
 - `progress.md` — source of truth for implementation state. Update after completing work.
 - `decisions.md` — ADRs. Check before proposing architectural changes.
 - `plans/` — implementation plans per feature.
+- `superpowers/plans/` — plans written via superpowers skill.
+- `superpowers/specs/` — design specs written via superpowers brainstorming.
 
 ## What's legacy
 - `foundry-harness-prd-v2.md` — kept for bug reference only. v2's 4-layer external wrapper failed in integration testing ($1.94 wasted, 3/8 tasks passed). Do not implement from this.

@@ -3,10 +3,9 @@
 Claude Code enhancement layer. Pure files — no build, no runtime deps.
 
 ## Install
-`bash install.sh` copies skills → `~/.claude/skills/`, agents → `~/.claude/agents/`, hooks → `settings.json`.
+Plugin marketplace: `/plugin marketplace add si-klyde/foundry` + `/plugin install foundry@foundry`. Legacy `install.sh` deprecated; `migrate.sh` cleans old artifacts.
 
 ## Gotchas
-- Plugin approach (symlink to `~/.claude/plugins/cache/`) failed — Claude Code prunes symlinks. User-level install is the only path that works.
 - Hook scripts depend on `python3` for JSON parsing. Falls back gracefully but hooks degrade without it.
 - `grep -c` exits 1 on zero matches. Never use `|| true` after — it eats the exit code. Use `|| VAR=0` instead.
 - Stop hook blocks session exit when quality issues found. May annoy users. Configurable blocking is a known TODO.
@@ -25,7 +24,10 @@ Claude Code enhancement layer. Pure files — no build, no runtime deps.
 - `rules/` — 6 injected rules (~950 tokens total)
 - `skills/` — 15 invocable + 1 bootstrap
 - `agents/` — 5 subagent definitions
-- `scripts/` — 3 helper scripts called by hooks
+- `scripts/` — 5 helper scripts called by hooks
 - `templates/` — foundry.json template for `/foundry-init`
+- `.claude-plugin/plugin.json` — plugin manifest
+- `hooks/hooks.json` — hook config for plugin system (`${CLAUDE_PLUGIN_ROOT}` paths)
+- `migrate.sh` — one-time cleanup of legacy install.sh artifacts
 
 → [decisions.md](../../docs/decisions.md) for architecture choices
