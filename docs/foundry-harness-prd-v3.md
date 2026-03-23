@@ -446,7 +446,7 @@ These informed the v3 changes. Preserved here for reference:
 | MS-H0 (core) | 2-3 weeks | Markdown, shell, JSON | Done, dogfooded |
 | MS-H0.9 (cascading context) | 2-3 days | Markdown, shell | Done |
 | MS-H0.10 (superpowers integration) | 2-3 days | Markdown, shell | Planned |
-| MS-H0.11 (plugin packaging) | 1-2 days | JSON, shell | Not started |
+| MS-H0.11 (plugin packaging) | 1-2 days | JSON, shell | Done |
 | MS-H1 | 2-3 weeks | Node.js/TypeScript | Not started (v2 CLI deleted) |
 | MS-H2 | 2-3 weeks | Node.js/TypeScript | Not started |
 | MS-H3 | 3-4 weeks | Rust | Not started |
@@ -463,52 +463,57 @@ Foundry L0 is currently installed via raw hook entries in `~/.claude/settings.js
 - Plugin ID: `foundry@foundry`
 - Registered in `known_marketplaces.json` as a directory source pointing to the repo
 
-**Repo structure changes:**
+**Repo structure (implemented):**
 ```
 foundry/
 ├── .claude-plugin/
-│   └── marketplace.json          ← top-level marketplace registry
-├── plugins/
-│   └── foundry/
+│   └── marketplace.json          ← marketplace registry (source: ./packages/layer0)
+├── packages/
+│   └── layer0/                   ← plugin root (unchanged location)
 │       ├── .claude-plugin/
-│       │   └── plugin.json       ← move from packages/layer0/
-│       ├── hooks/                ← move from packages/layer0/hooks/
-│       ├── skills/               ← move from packages/layer0/skills/
-│       ├── agents/               ← move from packages/layer0/agents/
-│       ├── rules/                ← move from packages/layer0/rules/
-│       └── templates/            ← move from packages/layer0/templates/
+│       │   └── plugin.json       ← plugin manifest
+│       ├── hooks/
+│       │   └── hooks.json        ← hook config (${CLAUDE_PLUGIN_ROOT} paths)
+│       ├── skills/               ← auto-discovered by plugin system
+│       ├── agents/               ← auto-discovered by plugin system
+│       ├── rules/
+│       ├── scripts/
+│       ├── templates/
+│       ├── migrate.sh            ← one-time legacy cleanup
+│       └── install.sh            ← deprecated
 ├── docs/                         ← unchanged
 └── ...
 ```
 
-**Installation (replaces manual hook wiring):**
-1. Register marketplace: `foundry` → `{ source: "directory", path: "<repo-path>" }` in `known_marketplaces.json`
-2. Enable plugin: `"foundry@foundry": true` in `enabledPlugins`
-3. Remove 4 manual hook entries from `settings.json` (SessionStart, PreToolUse, PostToolUse, Stop)
+**Plugin system auto-discovery** (from Claude Code docs):
+- `hooks/hooks.json` — event handler configuration
+- `skills/*/SKILL.md` — skill definitions
+- `agents/*.md` — subagent definitions
+- `commands/*.md` — slash commands
+- All component directories must be at plugin root level, not nested inside `.claude-plugin/`
 
-**Plugin manifest must declare:**
-- Hooks (all 4 lifecycle hooks currently in settings.json)
-- Skills (17 foundry skills + using-foundry bootstrap)
-- Agents (5 subagent definitions)
-- Rules (injected via SessionStart)
+**Installation:**
+```bash
+# In Claude Code:
+/plugin marketplace add /path/to/foundry    # local
+/plugin marketplace add collide/foundry     # or GitHub
+/plugin install foundry@foundry
+```
 
-**Migration:** One-time script that moves hook config from settings.json into plugin manifest and registers the marketplace.
-
-**Why not under gg-skills:** Foundry is a standalone project, not a Growgami convention. Should be installable independently.
+**Migration from legacy install.sh:** `bash packages/layer0/migrate.sh` removes copied skills/agents, manual hook entries, and CLAUDE.md context block. Then install via plugin system above.
 
 **Resolved:**
-- Plugins DO support hooks in plugin.json — either inline or via `"hooks": "./hooks/hooks.json"`. Superpowers uses file-based, hookify uses inline. Both patterns work.
+- Plugins DO support hooks via `hooks/hooks.json` with `${CLAUDE_PLUGIN_ROOT}` for portable paths.
 - Single-plugin marketplaces are fine — `ralph-loop-setup` is precedent.
-
-**Unresolved:**
-- How does `install.sh` change — does it register the marketplace + enable, or does `claude plugins add` handle it?
-- L1-L3 (CLI, orchestrator, daemon) live outside the plugin. Repo restructure must not break their paths.
+- Plugin system auto-discovers components (skills, agents, commands, hooks) at plugin root level.
+- `install.sh` is deprecated. Plugin system handles registration natively via `/plugin marketplace add` + `/plugin install`.
+- L1-L3 live outside the plugin. Keeping plugin at `packages/layer0/` (no move to `plugins/foundry/`) avoids path breakage.
 
 ---
 
 **Immediate priorities:**
-1. MS-H0.10 — Superpowers integration (bridge rule, skill wrappers, SessionStart detection)
-2. MS-H0.11 — Plugin packaging (marketplace structure, migration script)
-3. Dogfood integration on a real project
+1. ~~MS-H0.10 — Superpowers integration~~ Done
+2. ~~MS-H0.11 — Plugin packaging~~ Done
+3. Dogfood plugin install on a real project
 4. Dogfood doc gardening
 5. MS-H1 planning — session wrapper CLI

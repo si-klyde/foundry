@@ -9,7 +9,7 @@
 
 **MS-H0 (Claude Code Enhancement Layer) — implemented, installed, dogfooded.**
 
-Install method: `bash packages/layer0/install.sh` copies skills/agents to `~/.claude/`, registers hooks in `settings.json`. No plugin system — direct user-level install.
+Install method: Plugin marketplace. `/plugin marketplace add /path/to/foundry` + `/plugin install foundry@foundry`. Legacy `install.sh` deprecated; `migrate.sh` cleans old artifacts.
 
 ---
 
@@ -164,6 +164,18 @@ Foundry delegates in-session discipline to Superpowers plugin. Foundry handles i
 | Global CLAUDE.md | Added Foundry × Superpowers section explaining coordination. |
 | PRD v3 | Added MS-H0.10 (superpowers integration) to spec. |
 | decisions.md | Added "delegate to superpowers, don't duplicate" ADR. |
+
+## Plugin Packaging (2026-03-23)
+
+Packaged Foundry as a Claude Code plugin marketplace (`foundry@foundry`).
+
+| What changed | Detail |
+|---|---|
+| `.claude-plugin/marketplace.json` | Repo-root marketplace pointing to `./packages/layer0` |
+| `migrate.sh` | One-time cleanup of legacy install.sh artifacts |
+| `install.sh` | Deprecated — kept for reference |
+| Install flow | `/plugin marketplace add` + `/plugin install` |
+| `decisions.md` | Revised install ADR — plugin marketplace over user-level |
 
 ---
 

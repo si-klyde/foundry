@@ -1,0 +1,15 @@
+{
+  "name": "foundry",
+  "owner": { "name": "Growgami", "email": "collide@growgami.com" },
+  "metadata": {
+    "description": "Agent orchestration layer: structured workflows, verification, progress tracking, cross-session continuity",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "foundry",
+      "description": "Claude Code enhancement layer — hooks, skills, agents, rules for disciplined development workflows",
+      "source": "./packages/layer0"
+    }
+  ]
+}

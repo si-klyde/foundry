@@ -6,8 +6,8 @@ No Anthropic API, no `ANTHROPIC_API_KEY`. Learned from v2 integration test — w
 ## No semantic evaluation
 Running a full Claude Code session to eval a diff is absurdly expensive without direct Haiku API access. External verification (lint/test/typecheck) is the sole pass/fail signal.
 
-## User-level install over plugin approach
-Claude Code kept pruning symlinked plugins. Copying skills to `~/.claude/skills/`, agents to `~/.claude/agents/`, hooks to `settings.json` works reliably.
+## Plugin marketplace over user-level install
+Original approach (user-level install via `install.sh`) copied skills/agents to `~/.claude/` and injected hooks into `settings.json`. This worked but was fragile, non-portable, and inconsistent with how other plugins are distributed. The original plugin attempt failed because Claude Code pruned symlinks — but the marketplace system copies plugin dirs to cache (no symlinks), resolving the issue. `hooks.json` + `${CLAUDE_PLUGIN_ROOT}` handle hook registration portably. Migration script cleans legacy artifacts.
 
 ## File-based state, no database (L0-L2)
 `.foundry/plans/`, `.foundry/executions/`, `foundry-progress.json`. SQLite only enters at L3 (Rust daemon).

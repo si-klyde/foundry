@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# DEPRECATED: Use the plugin system instead.
+# Migration:  bash packages/layer0/migrate.sh
+# Install:    /plugin marketplace add /path/to/foundry
+#             /plugin install foundry@foundry
+#
 # Foundry installer — sets up Claude Code globally with Foundry harness
 # Installs: skills, agents, hooks, context system awareness in global CLAUDE.md
 # Usage: install.sh [--uninstall]
